@@ -1,0 +1,69 @@
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+model User {
+  id                String    @id @default(uuid())
+  email             String    @unique
+  name              String?
+  passwordHash      String?
+  resetTokenHash    String?
+  resetTokenExpires DateTime?
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
+
+  vaults       UserVault[]
+  transactions Transaction[]
+}
+
+model Vault {
+  id          String   @id @default(uuid())
+  name        String
+  description String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  members      UserVault[]
+  transactions Transaction[]
+}
+
+model UserVault {
+  userId  String
+  vaultId String
+  role    Role   @default(MEMBER)
+
+  user  User  @relation(fields: [userId], references: [id], onDelete: Cascade)
+  vault Vault @relation(fields: [vaultId], references: [id], onDelete: Cascade)
+
+  @@id([userId, vaultId])
+  @@index([vaultId])
+}
+
+enum Role {
+  OWNER
+  ADMIN
+  MEMBER
+}
+
+model Transaction {
+  id        String   @id @default(uuid())
+  amount    Float
+  title     String
+  category  String?
+  vaultId   String
+  creatorId String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  version   Int      @default(1) // For optimistic concurrency control
+
+  vault   Vault @relation(fields: [vaultId], references: [id], onDelete: Cascade)
+  creator User  @relation(fields: [creatorId], references: [id])
+
+  @@index([vaultId])
+  @@index([creatorId])
+}
