@@ -782,7 +782,7 @@ app.post('/api/gemini/receipt', async (req, res) => {
     };
 
     const response = await genai.models.generateContent({
-      model: 'gemini-2.0-flash',
+      model: 'gemini-1.5-flash',
       contents: [
         {
           role: 'user',
