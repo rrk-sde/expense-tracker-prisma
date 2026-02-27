@@ -19,6 +19,7 @@ export interface CreateTransactionDTO {
     category?: string;
     vaultId: string;
     creatorId: string;
+    items?: { name: string; price: number }[];
 }
 
 /**
@@ -35,9 +36,18 @@ export async function onCreateTransaction(data: CreateTransactionDTO) {
                 category: data.category,
                 vaultId: data.vaultId,
                 creatorId: data.creatorId,
+                items: data.items && data.items.length > 0 ? {
+                    createMany: {
+                        data: data.items.map(item => ({
+                            name: item.name,
+                            price: item.price
+                        }))
+                    }
+                } : undefined,
             },
             include: {
                 creator: { select: { id: true, name: true } },
+                items: true,
             }
         });
 

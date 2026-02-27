@@ -126,6 +126,7 @@ app.get('/api/vaults/:vaultId/transactions', async (req, res) => {
       prisma.transaction.findMany({
         where,
         include: {
+          items: true,
           creator: {
             select: {
               id: true,
@@ -753,9 +754,27 @@ app.post('/api/gemini/receipt', async (req, res) => {
         category: {
           type: Type.STRING,
           description: 'The category of the expense (e.g. Dining Out, Groceries, Transport, Entertainment, Shopping).',
-        }
+        },
+        items: {
+          type: Type.ARRAY,
+          description: 'A list of line-items found on the receipt.',
+          items: {
+            type: Type.OBJECT,
+            properties: {
+              name: {
+                type: Type.STRING,
+                description: 'The name or description of the line item',
+              },
+              price: {
+                type: Type.NUMBER,
+                description: 'The price or cost of this specific line item',
+              },
+            },
+            required: ['name', 'price'],
+          },
+        },
       },
-      required: ['title', 'amount', 'category']
+      required: ['title', 'amount', 'category', 'items']
     };
 
     const response = await genai.models.generateContent({
