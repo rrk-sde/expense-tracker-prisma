@@ -278,7 +278,12 @@ app.delete('/api/transactions/:transactionId', async (req, res) => {
       pusher.trigger(channelName, 'analytics.velocity_updated', { spendingVelocity }),
     ]);
 
-    return res.json({ success: true, transactionId });
+    return res.json({
+      success: true,
+      transactionId,
+      title: transaction.title,
+      amount: transaction.amount
+    });
   } catch (e: any) {
     return res.status(500).json({ error: e.message });
   }
@@ -335,6 +340,35 @@ app.post('/api/auth/login', async (req, res) => {
     }
 
     return res.json(sanitizeUser(user));
+  } catch (e: any) {
+    return res.status(500).json({ error: e.message });
+  }
+});
+
+// Google OAuth Mock/Real Endpoint
+app.post('/api/auth/google', async (req: express.Request, res: express.Response) => {
+  const { email, name, providerId } = req.body;
+  const normalizedEmail = normalizeEmail(email);
+
+  if (!normalizedEmail) {
+    return res.status(400).json({ error: 'Email is required' });
+  }
+
+  try {
+    let user = await prisma.user.findUnique({ where: { email: normalizedEmail } });
+
+    if (!user) {
+      user = await prisma.user.create({
+        data: {
+          email: normalizedEmail,
+          name: name || 'Google User',
+          // Random password for OAuth users to satisfy schema
+          passwordHash: await hashPassword(crypto.randomBytes(16).toString('hex')),
+        },
+      });
+    }
+
+    return res.status(200).json(sanitizeUser(user));
   } catch (e: any) {
     return res.status(500).json({ error: e.message });
   }
@@ -448,16 +482,31 @@ app.get('/api/users/:userId/vaults', async (req, res) => {
       },
       orderBy: { vault: { createdAt: 'desc' } },
     });
-    res.json(
-      userVaults.map((uv: any) => ({
-        id: uv.vault.id,
-        name: uv.vault.name,
-        description: uv.vault.description,
-        createdAt: uv.vault.createdAt,
-        updatedAt: uv.vault.updatedAt,
-        memberCount: uv.vault._count?.members ?? 1,
-      }))
+    const vaultsData = await Promise.all(
+      userVaults.map(async (uv: any) => {
+        const sums = (await prisma.transaction.groupBy({
+          by: ['type'],
+          where: { vaultId: uv.vault.id },
+          _sum: { amount: true },
+        })) as any[];
+
+        const total = sums.reduce((acc, group) => {
+          const amt = group._sum?.amount || 0;
+          return group.type === 'CR' ? acc - amt : acc + amt;
+        }, 0);
+
+        return {
+          id: uv.vault.id,
+          name: uv.vault.name,
+          description: uv.vault.description,
+          createdAt: uv.vault.createdAt,
+          updatedAt: uv.vault.updatedAt,
+          memberCount: uv.vault._count?.members ?? 1,
+          totalAmount: total,
+        };
+      })
     );
+    res.json(vaultsData);
   } catch (e: any) {
     res.status(500).json({ error: e.message });
   }
@@ -787,7 +836,7 @@ app.post('/api/gemini/receipt', async (req, res) => {
     };
 
     const response = await genai.models.generateContent({
-      model: 'gemini-2.0-flash',
+      model: 'gemini-2.5-flash',
       contents: [
         {
           role: 'user',
@@ -811,10 +860,215 @@ app.post('/api/gemini/receipt', async (req, res) => {
     const outputText = response.text || '{}';
     const json = JSON.parse(outputText);
     return res.json(json);
-
   } catch (e: any) {
     console.error('Gemini error:', e);
     return res.status(500).json({ error: e.message || 'Error processing receipt' });
+  }
+});
+
+app.get('/api/vaults/:vaultId/ai-insights', async (req, res) => {
+  try {
+    const vaultId = req.params.vaultId;
+    const userId = String(req.query.userId || '');
+
+    if (!userId) {
+      return res.status(400).json({ error: 'userId is required' });
+    }
+
+    const membership = await prisma.userVault.findFirst({
+      where: { userId, vaultId },
+      include: { vault: { select: { name: true } } }
+    });
+
+    if (!membership) {
+      return res.status(403).json({ error: 'Not allowed to view this space' });
+    }
+
+    const transactions = await prisma.transaction.findMany({
+      where: { vaultId },
+      orderBy: { createdAt: 'desc' },
+      take: 40,
+      include: { creator: { select: { name: true } } }
+    });
+
+    if (transactions.length === 0) {
+      return res.json({ insights: "No transactions found to analyze yet. Start adding some to get insights!" });
+    }
+
+    const txSummary = transactions.map(t => ({
+      title: t.title,
+      amount: t.amount,
+      type: (t as any).type || 'DR',
+      category: t.category,
+      user: t.creator?.name || 'Unknown',
+      date: t.createdAt.toISOString().split('T')[0]
+    }));
+
+    const response = await genai.models.generateContent({
+      model: 'gemini-2.5-flash',
+      contents: [{
+        role: 'user',
+        parts: [{
+          text: `You are a financial analyst AI for a shared money tracking app. 
+          Analyze these recent expenses for a space called "${membership.vault.name}". 
+          All amounts are in Indian Rupees (₹). ALWAYS use the ₹ symbol, never use $ or USD.
+          
+          Data (JSON): ${JSON.stringify(txSummary)}
+          
+          Provide a concise, conversational summary (max 200 words). 
+          Include:
+          1. A quick breakdown of who is driving the spending.
+          2. The top spending categories.
+          3. One actionable tip to save money or a funny observation about the specific spending pattern.
+          Use emojis and keep it professional yet friendly. Use markdown for formatting.`
+        }]
+      }]
+    });
+
+    const insights = response.text || "I couldn't generate insights at this moment.";
+    res.json({ insights });
+  } catch (e: any) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+app.post('/api/vaults/:vaultId/chat', async (req, res) => {
+  try {
+    const vaultId = req.params.vaultId;
+    const { userId, message, history } = req.body;
+
+    if (!userId || !message) return res.status(400).json({ error: 'userId and message are required' });
+
+    const membership = await prisma.userVault.findFirst({
+      where: { userId, vaultId },
+      include: { vault: { select: { name: true } }, user: { select: { name: true } } }
+    });
+    if (!membership) return res.status(403).json({ error: 'Not allowed' });
+
+    const transactions = await prisma.transaction.findMany({
+      where: { vaultId },
+      orderBy: { createdAt: 'desc' },
+      take: 100,
+      include: { creator: { select: { name: true, email: true } } }
+    });
+
+    const members = await prisma.userVault.findMany({
+      where: { vaultId },
+      include: { user: { select: { name: true, email: true } } }
+    });
+
+    const txSummary = transactions.map(t => ({
+      title: t.title,
+      amount: t.amount,
+      type: (t as any).type || 'DR',
+      category: t.category,
+      by: t.creator?.name || t.creator?.email || 'Unknown',
+      date: t.createdAt.toISOString().split('T')[0],
+      splitWith: (t as any).splitWith || []
+    }));
+
+    const memberNames = members.map(m => m.user?.name || m.user?.email || 'Unknown');
+    const systemPrompt = `You are a smart financial assistant for a shared expense tracking space called "${membership.vault.name}".
+The current user is: ${membership.user?.name || 'User'}.
+Space members: ${memberNames.join(', ')}.
+All amounts are in Indian Rupees (₹). ALWAYS use the ₹ symbol.
+Today's date: ${new Date().toISOString().split('T')[0]}.
+
+Transaction data (last 100 transactions):
+${JSON.stringify(txSummary, null, 2)}
+
+Answer the user's questions concisely and accurately based on this data. Use markdown formatting and emojis to make responses friendly. If you make calculations, show the math briefly. Keep answers under 150 words.`;
+
+    const chatHistory = (history || []).map((msg: { role: string; text: string }) => ({
+      role: msg.role === 'user' ? 'user' : 'model',
+      parts: [{ text: msg.text }]
+    }));
+
+    const chat = genai.chats.create({
+      model: 'gemini-2.5-flash',
+      history: [
+        { role: 'user', parts: [{ text: systemPrompt }] },
+        { role: 'model', parts: [{ text: `Got it! I'm your financial assistant for the "${membership.vault.name}" space. Ask me anything about your expenses — I have access to your transaction history and will answer in ₹. 💰` }] },
+        ...chatHistory
+      ]
+    });
+
+    const response = await chat.sendMessage({ message });
+    res.json({ reply: response.text });
+  } catch (e: any) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+app.post('/api/gemini/parse-text', async (req, res) => {
+  try {
+    const { text } = req.body;
+    if (!text) return res.status(400).json({ error: 'Text is required' });
+
+    const responseSchema: Schema = {
+      type: Type.OBJECT,
+      properties: {
+        title: { type: Type.STRING },
+        amount: { type: Type.NUMBER },
+        type: { type: Type.STRING, description: 'DR for spending, CR for income' },
+        category: { type: Type.STRING }
+      },
+      required: ['title', 'amount', 'type', 'category']
+    };
+
+    const response = await genai.models.generateContent({
+      model: 'gemini-2.5-flash',
+      contents: [{ role: 'user', parts: [{ text: `Parse this transaction: "${text}". Return JSON with: title, amount (number), type (DR/CR), category.` }] }],
+      config: { responseMimeType: 'application/json', responseSchema }
+    });
+
+    const parsed = JSON.parse(response.text || '{}');
+    res.json(parsed);
+  } catch (e: any) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+app.get('/api/vaults/:vaultId/forecast', async (req, res) => {
+  try {
+    const vaultId = req.params.vaultId;
+    const userId = String(req.query.userId || '');
+
+    const membership = await prisma.userVault.findFirst({ where: { userId, vaultId } });
+    if (!membership) return res.status(403).json({ error: 'Not allowed' });
+
+    const transactions = await prisma.transaction.findMany({
+      where: { vaultId },
+      orderBy: { createdAt: 'desc' },
+      take: 100,
+    });
+
+    if (transactions.length < 5) {
+      return res.json({ forecast: "Need more transaction history (at least 5 items) to generate a reliable forecast." });
+    }
+
+    const dataString = JSON.stringify(transactions.map(t => ({
+      amt: t.amount,
+      type: (t as any).type || 'DR',
+      date: t.createdAt.toISOString().split('T')[0],
+      title: t.title
+    })));
+
+    const response = await genai.models.generateContent({
+      model: 'gemini-2.5-flash',
+      contents: [{
+        role: 'user', parts: [{
+          text: `Analyze these expenses and predict the next month's spending. 
+      All amounts are in Indian Rupees (₹). ALWAYS use the ₹ symbol, never use $ or USD.
+      Current date: ${new Date().toISOString()}.
+      History: ${dataString}.
+      Provide a breakdown of predicted total spend (in ₹), recurring expenses to watch out for, and a 1-sentence budget warning. Keep it under 150 words. Use markdown and emojis.` }]
+      }]
+    });
+
+    res.json({ forecast: response.text });
+  } catch (e: any) {
+    res.status(500).json({ error: e.message });
   }
 });
 

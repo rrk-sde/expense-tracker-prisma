@@ -19,7 +19,9 @@ export interface CreateTransactionDTO {
     category?: string;
     vaultId: string;
     creatorId: string;
+    type?: string;
     items?: { name: string; price: number }[];
+    splitWith?: string[];
 }
 
 /**
@@ -36,6 +38,8 @@ export async function onCreateTransaction(data: CreateTransactionDTO) {
                 category: data.category,
                 vaultId: data.vaultId,
                 creatorId: data.creatorId,
+                type: (data as any).type || 'DR',
+                splitWith: data.splitWith || [],
                 items: data.items && data.items.length > 0 ? {
                     createMany: {
                         data: data.items.map(item => ({

@@ -59,6 +59,8 @@ model Transaction {
   creatorId String
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
+  type      String   @default("DR") // DR for Debit, CR for Credit
+  splitWith String[] @default([])   // IDs of users involved in this transaction split
   version   Int      @default(1) // For optimistic concurrency control
 
   vault   Vault @relation(fields: [vaultId], references: [id], onDelete: Cascade)
