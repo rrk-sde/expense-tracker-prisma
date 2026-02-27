@@ -778,12 +778,12 @@ app.post('/api/gemini/receipt', async (req, res) => {
     };
 
     const response = await genai.models.generateContent({
-      model: 'gemini-2.5-flash',
+      model: 'gemini-1.5-flash',
       contents: [
         {
           role: 'user',
           parts: [
-            { text: 'Analyze this receipt and output the structured JSON data containing the vendor title, final total amount, and best guess category.' },
+            { text: 'Analyze this receipt and output the structured JSON data containing the vendor title, final total amount, best guess category, and ALL individual line items (name and price).' },
             {
               inlineData: {
                 data: base64,
