@@ -837,7 +837,7 @@ app.post('/api/gemini/receipt', async (req, res) => {
     };
 
     const response = await genai.models.generateContent({
-      model: 'gemini-2.0-flash',
+      model: 'gemini-2.5-flash',
       contents: [
         {
           role: 'user',
@@ -906,7 +906,7 @@ app.get('/api/vaults/:vaultId/ai-insights', async (req, res) => {
     }));
 
     const response = await genai.models.generateContent({
-      model: 'gemini-2.0-flash',
+      model: 'gemini-2.5-flash',
       contents: [{
         role: 'user',
         parts: [{
@@ -986,7 +986,7 @@ Answer the user's questions concisely and accurately based on this data. Use mar
     }));
 
     const chat = genai.chats.create({
-      model: 'gemini-2.0-flash',
+      model: 'gemini-2.5-flash',
       history: [
         { role: 'user', parts: [{ text: systemPrompt }] },
         { role: 'model', parts: [{ text: `Got it! I'm your financial assistant for the "${membership.vault.name}" space. Ask me anything about your expenses — I have access to your transaction history and will answer in ₹. 💰` }] },
@@ -1009,22 +1009,45 @@ app.post('/api/gemini/parse-text', async (req, res) => {
     const responseSchema: Schema = {
       type: Type.OBJECT,
       properties: {
-        title: { type: Type.STRING },
-        amount: { type: Type.NUMBER },
-        type: { type: Type.STRING, description: 'DR for spending, CR for income' },
-        category: { type: Type.STRING }
+        transactions: {
+          type: Type.ARRAY,
+          items: {
+            type: Type.OBJECT,
+            properties: {
+              title: { type: Type.STRING },
+              amount: { type: Type.NUMBER },
+              type: { type: Type.STRING, description: 'DR for spending/expense, CR for income/received' },
+              category: { type: Type.STRING }
+            },
+            required: ['title', 'amount', 'type', 'category']
+          }
+        }
       },
-      required: ['title', 'amount', 'type', 'category']
+      required: ['transactions']
     };
 
+    const prompt = `You are a smart expense parser. Parse ALL transactions from this text: "${text}"
+
+Rules:
+- Extract EVERY separate expense or income mentioned
+- If someone says "2 rs nameen" → title="Namkeen", amount=2, type=DR
+- If someone says "20 from father" → title="From Father", amount=20, type=CR (money received)
+- If someone says "cycle punchure 24" → title="Cycle Puncture", amount=24, type=DR
+- Correct spelling mistakes in titles (punchure → Puncture, nameen → Namkeen)
+- "from X" or "received from X" → type=CR
+- Anything else is DR (spending)
+- If only one transaction, still return as array with one item
+- Amount must be a positive number
+- Categories: Food, Transport, Shopping, Health, Entertainment, Utilities, Other`;
+
     const response = await genai.models.generateContent({
-      model: 'gemini-2.0-flash',
-      contents: [{ role: 'user', parts: [{ text: `Parse this transaction: "${text}". Return JSON with: title, amount (number), type (DR/CR), category.` }] }],
+      model: 'gemini-2.5-flash',
+      contents: [{ role: 'user', parts: [{ text: prompt }] }],
       config: { responseMimeType: 'application/json', responseSchema }
     });
 
-    const parsed = JSON.parse(response.text || '{}');
-    res.json(parsed);
+    const parsed = JSON.parse(response.text || '{"transactions":[]}');
+    res.json(parsed); // { transactions: [...] }
   } catch (e: any) {
     res.status(500).json({ error: e.message });
   }
@@ -1056,7 +1079,7 @@ app.get('/api/vaults/:vaultId/forecast', async (req, res) => {
     })));
 
     const response = await genai.models.generateContent({
-      model: 'gemini-2.0-flash',
+      model: 'gemini-2.5-flash',
       contents: [{
         role: 'user', parts: [{
           text: `Analyze these expenses and predict the next month's spending. 
