@@ -728,6 +728,68 @@ app.post('/api/vaults/:vaultId/leave', async (req, res) => {
   }
 });
 
+import { GoogleGenAI, Type, type Schema } from '@google/genai';
+
+const genai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY || "" });
+
+app.post('/api/gemini/receipt', async (req, res) => {
+  try {
+    const { base64, mimeType } = req.body;
+    if (!base64) {
+      return res.status(400).json({ error: 'base64 image data missing' });
+    }
+
+    const responseSchema: Schema = {
+      type: Type.OBJECT,
+      properties: {
+        title: {
+          type: Type.STRING,
+          description: 'A short 2-3 word title summarizing the vendor or main item purchased.',
+        },
+        amount: {
+          type: Type.NUMBER,
+          description: 'The final total numeric amount paid on the receipt. Just the number, no currency symbols.',
+        },
+        category: {
+          type: Type.STRING,
+          description: 'The category of the expense (e.g. Dining Out, Groceries, Transport, Entertainment, Shopping).',
+        }
+      },
+      required: ['title', 'amount', 'category']
+    };
+
+    const response = await genai.models.generateContent({
+      model: 'gemini-2.5-flash',
+      contents: [
+        {
+          role: 'user',
+          parts: [
+            { text: 'Analyze this receipt and output the structured JSON data containing the vendor title, final total amount, and best guess category.' },
+            {
+              inlineData: {
+                data: base64,
+                mimeType: mimeType || 'image/jpeg',
+              }
+            }
+          ]
+        }
+      ],
+      config: {
+        responseMimeType: 'application/json',
+        responseSchema: responseSchema,
+      }
+    });
+
+    const outputText = response.text || '{}';
+    const json = JSON.parse(outputText);
+    return res.json(json);
+
+  } catch (e: any) {
+    console.error('Gemini error:', e);
+    return res.status(500).json({ error: e.message || 'Error processing receipt' });
+  }
+});
+
 const PORT = process.env.PORT || 4000;
 app.listen(PORT, () => {
   console.log(`[Antigravity] Edge Server running on http://localhost:${PORT}`);
