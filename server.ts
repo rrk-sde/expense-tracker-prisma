@@ -1018,9 +1018,10 @@ Rules:
 - If only one transaction, still return as array with one item
 - Amount must be a positive number
 - Categories: Food, Transport, Shopping, Health, Entertainment, Utilities, Other
+- Also generate a short, funny 1-line joke or witty comment about what the user just spent money on (or received). Add this as a "joke" field in the JSON.
 
 Return ONLY valid JSON, no explanation, no markdown, in this exact format:
-{"transactions":[{"title":"...","amount":0,"type":"DR","category":"..."}]}`;
+{"transactions":[{"title":"...","amount":0,"type":"DR","category":"..."}], "joke": "Your funny joke here"}`;
 
     const response = await genai.models.generateContent({
       model: 'gemma-3-27b-it',
