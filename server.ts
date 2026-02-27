@@ -484,11 +484,12 @@ app.get('/api/users/:userId/vaults', async (req, res) => {
     });
     const vaultsData = await Promise.all(
       userVaults.map(async (uv: any) => {
-        const sums = (await prisma.transaction.groupBy({
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const sums: any[] = await (prisma.transaction.groupBy as any)({
           by: ['type'],
           where: { vaultId: uv.vault.id },
           _sum: { amount: true },
-        })) as any[];
+        });
 
         const total = sums.reduce((acc, group) => {
           const amt = group._sum?.amount || 0;
