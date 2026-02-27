@@ -743,6 +743,10 @@ app.post('/api/gemini/receipt', async (req, res) => {
     const responseSchema: Schema = {
       type: Type.OBJECT,
       properties: {
+        isReceipt: {
+          type: Type.BOOLEAN,
+          description: 'Set to true if the document is a receipt, invoice, or payment-related document. False otherwise.',
+        },
         title: {
           type: Type.STRING,
           description: 'A short 2-3 word title summarizing the vendor or main item purchased.',
@@ -774,7 +778,7 @@ app.post('/api/gemini/receipt', async (req, res) => {
           },
         },
       },
-      required: ['title', 'amount', 'category', 'items']
+      required: ['isReceipt', 'title', 'amount', 'category', 'items']
     };
 
     const response = await genai.models.generateContent({
@@ -783,7 +787,7 @@ app.post('/api/gemini/receipt', async (req, res) => {
         {
           role: 'user',
           parts: [
-            { text: 'Analyze this receipt and output the structured JSON data containing the vendor title, final total amount, best guess category, and ALL individual line items (name and price).' },
+            { text: 'Analyze this document. First, determine if it is a receipt, invoice, or payment-related document. If it is NOT, set "isReceipt" to false. If it IS, set "isReceipt" to true and output the structured JSON data containing the vendor title, final total amount, best guess category, and ALL individual line items (name and price).' },
             {
               inlineData: {
                 data: base64,
