@@ -9,6 +9,11 @@ import { promisify } from 'util';
 
 dotenv.config();
 
+// Bypass SSL certificate issues for local development (fixes Pusher SELF_SIGNED_CERT_IN_CHAIN error)
+if (process.env.NODE_ENV !== 'production') {
+  process.env.NODE_TLS_REJECT_UNAUTHORIZED = "0";
+}
+
 const app = express();
 app.use(cors());
 app.use(express.json({ limit: '10mb' }));
@@ -745,23 +750,23 @@ app.post('/api/gemini/receipt', async (req, res) => {
       properties: {
         isReceipt: {
           type: Type.BOOLEAN,
-          description: 'Set to true if the document is a receipt, invoice, or payment-related document. False otherwise.',
+          description: 'Set to true if the document is a receipt, invoice, payment screenshot (Dr/Cr), or bank notification. False otherwise.',
         },
         title: {
           type: Type.STRING,
-          description: 'A short 2-3 word title summarizing the vendor or main item purchased.',
+          description: 'A short title. For receipts, use the vendor. For Dr/Cr screenshots, use the transaction party (e.g. "To John", "From Bank", "GPay to Merchant").',
         },
         amount: {
           type: Type.NUMBER,
-          description: 'The final total numeric amount paid on the receipt. Just the number, no currency symbols.',
+          description: 'The final numeric amount. If it is a Debit (Dr), keep it positive. If it is a Credit (Cr), the user will manage it, so just provide the absolute value.',
         },
         category: {
           type: Type.STRING,
-          description: 'The category of the expense (e.g. Dining Out, Groceries, Transport, Entertainment, Shopping).',
+          description: 'The category. For payment screenshots, guess based on context (e.g. Transfers, Salary, Bill Payment).',
         },
         items: {
           type: Type.ARRAY,
-          description: 'A list of line-items found on the receipt.',
+          description: 'A list of line-items. for screenshots with single amounts, create one item representing the whole transaction.',
           items: {
             type: Type.OBJECT,
             properties: {
@@ -782,12 +787,12 @@ app.post('/api/gemini/receipt', async (req, res) => {
     };
 
     const response = await genai.models.generateContent({
-      model: 'gemini-1.5-flash',
+      model: 'gemini-2.0-flash',
       contents: [
         {
           role: 'user',
           parts: [
-            { text: 'Analyze this document. First, determine if it is a receipt, invoice, or payment-related document. If it is NOT (e.g. blank document, random photo, or non-payment text), set "isReceipt" to false. If it IS, set "isReceipt" to true and output the structured JSON data containing the vendor title, final total amount, best guess category, and ALL individual line items (name and price).' },
+            { text: 'Analyze this document. First, determine if it is a receipt, invoice, payment screenshot (GPay/PhonePe), Bank Dr/Cr notification, or payment-related document. If it is NOT, set "isReceipt" to false. If it IS, set "isReceipt" to true and output structured JSON. Identify the main amount and categorize it. If it is a payment screenshot (like GPay), use the recipient/sender name as the title.' },
             {
               inlineData: {
                 data: base64,
