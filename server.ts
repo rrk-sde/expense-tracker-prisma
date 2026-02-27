@@ -2,7 +2,7 @@ import express from 'express';
 import cors from 'cors';
 import { PrismaClient } from '@prisma/client';
 import Pusher from 'pusher';
-import { onCreateTransaction } from './actions/transaction.action.ts';
+import { onCreateTransaction } from './actions/transaction.action';
 import dotenv from 'dotenv';
 import crypto from 'crypto';
 import { promisify } from 'util';
