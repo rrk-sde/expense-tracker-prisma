@@ -649,7 +649,80 @@ app.post('/api/vaults/:vaultId/members/remove', async (req, res) => {
       },
     });
 
-    return res.json({ success: true, removedUserId: targetUserId });
+  } catch (e: any) {
+    return res.status(500).json({ error: e.message });
+  }
+});
+
+// Delete space (owner only)
+app.delete('/api/vaults/:vaultId', async (req, res) => {
+  try {
+    const vaultId = req.params.vaultId;
+    const actorUserId = String(req.body?.userId || req.query.userId || '');
+
+    if (!actorUserId) {
+      return res.status(400).json({ error: 'userId is required' });
+    }
+
+    const membership = await prisma.userVault.findFirst({
+      where: { userId: actorUserId, vaultId },
+    });
+
+    if (!membership || membership.role !== 'OWNER') {
+      return res.status(403).json({ error: 'Only the owner can delete the space entirely' });
+    }
+
+    await prisma.vault.delete({
+      where: { id: vaultId },
+    });
+
+    return res.json({ success: true, message: 'Vault deleted successfully' });
+  } catch (e: any) {
+    return res.status(500).json({ error: e.message });
+  }
+});
+
+// Leave space (members/admins)
+app.post('/api/vaults/:vaultId/leave', async (req, res) => {
+  try {
+    const vaultId = req.params.vaultId;
+    const actorUserId = String(req.body?.userId || req.query.userId || '');
+
+    if (!actorUserId) {
+      return res.status(400).json({ error: 'userId is required' });
+    }
+
+    const membership = await prisma.userVault.findFirst({
+      where: { userId: actorUserId, vaultId },
+    });
+
+    if (!membership) {
+      return res.status(404).json({ error: 'You are not a member of this space' });
+    }
+
+    if (membership.role === 'OWNER') {
+      // Check if they are the only member
+      const memberCount = await prisma.userVault.count({ where: { vaultId } });
+      if (memberCount > 1) {
+        return res.status(403).json({ error: 'Owner cannot leave while others exist. Delete the space or transfer ownership.' });
+      }
+
+      // If only member, leaving is equivalent to deleting
+      await prisma.vault.delete({ where: { id: vaultId } });
+      return res.json({ success: true, message: 'Vault deleted since you were the last member' });
+    }
+
+    // Normal member leaving
+    await prisma.userVault.delete({
+      where: {
+        userId_vaultId: {
+          userId: actorUserId,
+          vaultId,
+        },
+      },
+    });
+
+    return res.json({ success: true, message: 'Left space successfully' });
   } catch (e: any) {
     return res.status(500).json({ error: e.message });
   }
