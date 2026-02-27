@@ -837,7 +837,7 @@ app.post('/api/gemini/receipt', async (req, res) => {
     };
 
     const response = await genai.models.generateContent({
-      model: 'gemini-2.5-flash',
+      model: 'gemini-2.0-flash',
       contents: [
         {
           role: 'user',
@@ -906,7 +906,7 @@ app.get('/api/vaults/:vaultId/ai-insights', async (req, res) => {
     }));
 
     const response = await genai.models.generateContent({
-      model: 'gemini-2.5-flash',
+      model: 'gemini-2.0-flash',
       contents: [{
         role: 'user',
         parts: [{
@@ -986,7 +986,7 @@ Answer the user's questions concisely and accurately based on this data. Use mar
     }));
 
     const chat = genai.chats.create({
-      model: 'gemini-2.5-flash',
+      model: 'gemini-2.0-flash',
       history: [
         { role: 'user', parts: [{ text: systemPrompt }] },
         { role: 'model', parts: [{ text: `Got it! I'm your financial assistant for the "${membership.vault.name}" space. Ask me anything about your expenses — I have access to your transaction history and will answer in ₹. 💰` }] },
@@ -1018,7 +1018,7 @@ app.post('/api/gemini/parse-text', async (req, res) => {
     };
 
     const response = await genai.models.generateContent({
-      model: 'gemini-2.5-flash',
+      model: 'gemini-2.0-flash',
       contents: [{ role: 'user', parts: [{ text: `Parse this transaction: "${text}". Return JSON with: title, amount (number), type (DR/CR), category.` }] }],
       config: { responseMimeType: 'application/json', responseSchema }
     });
@@ -1056,7 +1056,7 @@ app.get('/api/vaults/:vaultId/forecast', async (req, res) => {
     })));
 
     const response = await genai.models.generateContent({
-      model: 'gemini-2.5-flash',
+      model: 'gemini-2.0-flash',
       contents: [{
         role: 'user', parts: [{
           text: `Analyze these expenses and predict the next month's spending. 
